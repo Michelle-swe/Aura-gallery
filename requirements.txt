@@ -1,0 +1,12 @@
+﻿fastapi
+uvicorn[standard]
+sqlalchemy
+alembic
+pydantic-settings
+python-dotenv
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+cloudinary
+httpx
+psycopg2-binary
