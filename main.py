@@ -1,57 +1,124 @@
+﻿"""
+FastAPI application entry point.
+Initializes the Aura Gallery API with all configurations and middleware.
+"""
+
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import Base, engine
-import routes
+from fastapi.responses import JSONResponse
 
-Base.metadata.create_all(bind=engine)
+from config import settings
+from database import init_db, close_db, Base, engine
+from routes import router
+
+
+# =========================
+# LIFECYCLE EVENTS
+# =========================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Manage application startup and shutdown events.
+    """
+    # Startup
+    print(f"🚀 Starting {settings.APP_NAME} v{settings.APP_VERSION}")
+    init_db()
+    print("✅ Database initialized")
+    
+    yield
+    
+    # Shutdown
+    print("🛑 Shutting down application")
+    close_db()
+    print("✅ Database connections closed")
+
+
+# =========================
+# APPLICATION INITIALIZATION
+# =========================
 
 app = FastAPI(
-    title="Aura Gallery API",
+    title=settings.APP_NAME,
     description="Premium photo management platform — Digital Curator",
-    version="1.0.0"
+    version=settings.APP_VERSION,
+    debug=settings.DEBUG,
+    lifespan=lifespan,
 )
 
+
+# =========================
+# MIDDLEWARE CONFIGURATION
+# =========================
+
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_methods=settings.CORS_ALLOW_METHODS,
+    allow_headers=settings.CORS_ALLOW_HEADERS,
 )
 
-app.include_router(routes.router)
 
-@app.get("/")
+# =========================
+# ROUTES
+# =========================
+
+app.include_router(router)
+
+
+# =========================
+# ROOT ENDPOINTS
+# =========================
+
+@app.get("/", tags=["Health"])
 def root():
-    return {"message": "Aura Gallery API is live"}
+    """Root endpoint for health check."""
+    return {
+        "message": f"{settings.APP_NAME} API is live",
+        "version": settings.APP_VERSION,
+    }
 
-@app.get("/health")
+
+@app.get("/health", tags=["Health"])
 def health():
-    return {"status": "ok"}
+    """Health check endpoint."""
+    return {
+        "status": "ok",
+        "app": settings.APP_NAME,
+        "debug": settings.DEBUG,
+    }
 
 
+# =========================
+# ERROR HANDLERS
+# =========================
 
-import cloudinary
-import cloudinary.uploader
-from cloudinary.utils import cloudinary_url
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """Global exception handler for unhandled errors."""
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            "error_code": "INTERNAL_ERROR",
+        },
+    )
 
-# Configuration       
-cloudinary.config( 
-    cloud_name = "dljollcuc", 
-    api_key = "574547234157173", 
-    api_secret = "<your_api_secret>", # Click 'View API Keys' above to copy your API secret
-    secure=True
-)
 
-# Upload an image
-upload_result = cloudinary.uploader.upload("https://res.cloudinary.com/demo/image/upload/getting-started/shoes.jpg",
-                                           public_id="shoes")
-print(upload_result["secure_url"])
+# =========================
+# STARTUP INFO
+# =========================
 
-# Optimize delivery by resizing and applying auto-format and auto-quality
-optimize_url, _ = cloudinary_url("shoes", fetch_format="auto", quality="auto")
-print(optimize_url)
-
-# Transform the image: auto-crop to square aspect_ratio
-auto_crop_url, _ = cloudinary_url("shoes", width=500, height=500, crop="auto", gravity="auto")
-print(auto_crop_url)
+if __name__ == "__main__":
+    import uvicorn
+    
+    uvicorn.run(
+        "main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=settings.DEBUG,
+        log_level="info",
+    )

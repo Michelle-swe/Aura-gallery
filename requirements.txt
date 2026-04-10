@@ -10,3 +10,4 @@ python-multipart
 cloudinary
 httpx
 psycopg2-binary
+email-validator
