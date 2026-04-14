@@ -8,7 +8,11 @@ engine = create_engine(
     connect_args={"check_same_thread": False}
 )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(
+    autocommit=False, 
+    autoflush=False, 
+    bind=engine
+)
 
 Base = declarative_base()
 
@@ -18,3 +22,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def init_db():
+    from models import User, Photo, Collection, CollectionPhoto
+    Base.metadata.create_all(bind=engine)
