@@ -1,15 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import Base, engine
+from database import Base, engine, init_db
 import routes
 
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Aura Gallery API",
     description="Premium photo management platform — Digital Curator",
     version="1.0.0"
 )
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,6 +24,7 @@ app.add_middleware(
 )
 
 app.include_router(routes.router)
+
 
 @app.get("/")
 def root():
