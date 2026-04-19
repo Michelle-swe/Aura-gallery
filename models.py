@@ -1,9 +1,9 @@
-from sqlalchemy import Column,Integer, String, ForeignKey, Datetime, Boolean
-from sqlalchemy.orm import relationship
 from datetime import datetime
 
-from database import Base
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
+from sqlalchemy.orm import relationship
 
+from database import Base
 
 
 class User(Base):
@@ -13,7 +13,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
     plan = Column(String, default="Starter")
-    created_at = Column(Datetime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     photos = relationship("Photo", back_populates="user", cascade="all, delete")
@@ -27,7 +27,7 @@ class Photo(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     image_url = Column(String, nullable=False)
-    created_at = Column(Datetime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
     is_deleted = Column(Boolean, default=False)
 
     # Relationships
@@ -43,7 +43,7 @@ class Collection(Base):
     name = Column(String, nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     cover_image = Column(String, nullable=True)
-    created_at = Column(Datetime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     user = relationship("User", back_populates="collections")

@@ -1,3 +1,4 @@
+import os
 import uuid
 from datetime import datetime, timedelta
 
@@ -10,9 +11,9 @@ from jose import JWTError, jwt
 # 🔐 JWT CONFIG
 # ==============================
 
-SECRET_KEY = "your_secret_key" # move to config.py later
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+SECRET_KEY = os.getenv("SECRET_KEY") # move to config.py later
+ALGORITHM = os.getenv("ALGORITHM") or "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES") or 60)   
 
 security = HTTPBearer()
 
