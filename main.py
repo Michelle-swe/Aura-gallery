@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import Base, engine, init_db
 import routes
 import cloudinary
+from config import settings
 
 
 
@@ -14,6 +15,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
+cloudinary.config(
+    cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+    api_key=settings.CLOUDINARY_API_KEY,
+    api_secret=settings.CLOUDINARY_API_SECRET,
+    secure=True
+)
 
 @app.on_event("startup")
 def on_startup():
@@ -40,10 +48,4 @@ def health():
 
 
 
-import os
-cloudinary.config(
-    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
-    api_key=os.getenv("CLOUDINARY_API_KEY"),
-    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
-    secure=True
-)
+

@@ -1,76 +1,148 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
-from datetime import datetime
-import uuid
-
-from storage_logic import can_upload
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from sqlalchemy.orm import Session
+from database import get_db
+import models
+import bcrypt
+import cloudinary
+import cloudinary.uploader
+from utils import (
+    create_access_token,
+    get_current_user,
+    enforce_storage_limit,
+    generate_share_hash,
+    move_to_trash
+)
 
 router = APIRouter()
 
-# 🧠 Temporary in-memory storage (replace with DB later)
-fake_db = {
-    "users": {
-        "user1": {
-            "plan": "starter",
-            "photo_count": 0
-        }
-    },
-    "photos": []
-}
+
+# AUTH
+@router.post("/register")
+def register(email: str, password: str, db: Session = Depends(get_db)):
+    existing_user = db.query(models.User).filter(models.User.email == email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    user = models.User(email=email, password_hash=hashed_password)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"message": "User created", "email": user.email}
 
 
-# -----------------------------
-# 📤 UPLOAD PHOTO
-# -----------------------------
+@router.post("/login")
+def login(email: str, password: str, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user or not bcrypt.checkpw(password.encode("utf-8"), user.password_hash.encode("utf-8")):
+        raise HTTPException(status_code=400, detail="Invalid credentials")
+
+    token = create_access_token({"user_id": user.id})
+    return {"access_token": token}
+
+
+# USER
+@router.get("/me")
+def get_me(user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = db.query(models.User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+# PHOTOS
 @router.post("/photos/upload")
-async def upload_photo(file: UploadFile = File(...)):
-    user = fake_db["users"]["user1"]
+async def upload_photo(file: UploadFile = File(...), user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = db.query(models.User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-    # 🔥 Check storage limit
-    if not can_upload(user["plan"], user["photo_count"]):
-        raise HTTPException(
-            status_code=403,
-            detail="🚫 Storage full. Upgrade your plan."
-        )
+    enforce_storage_limit(user)
 
-    # 🧠 Simulate file upload (later use Cloudinary or S3)
-    file_url = f"https://fake-storage.com/{uuid.uuid4()}_{file.filename}"
+    contents = await file.read()
+    upload_result = cloudinary.uploader.upload(contents)
+    image_url = upload_result["secure_url"]
 
-    # Save photo
-    photo = {
-        "id": str(uuid.uuid4()),
-        "url": file_url,
-        "created_at": datetime.utcnow(),
-        "deleted": False
-    }
+    photo = models.Photo(image_url=image_url, user_id=user_id)
+    db.add(photo)
+    db.commit()
+    db.refresh(photo)
 
-    fake_db["photos"].append(photo)
-
-    # Update user photo count
-    user["photo_count"] += 1
-
-    return {
-        "message": "✅ Photo uploaded successfully",
-        "photo": photo
-    }
+    return {"message": "Photo uploaded successfully", "url": image_url}
 
 
-# -----------------------------
-# 🖼️ GET ALL PHOTOS
-# -----------------------------
 @router.get("/photos")
-def get_photos():
-    return [p for p in fake_db["photos"] if not p["deleted"]]
+def get_photos(user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
+    return db.query(models.Photo).filter(
+        models.Photo.user_id == user_id,
+        models.Photo.is_deleted == False
+    ).all()
 
 
-# -----------------------------
-# 🗑️ DELETE PHOTO (SOFT DELETE)
-# -----------------------------
 @router.delete("/photos/{photo_id}")
-def delete_photo(photo_id: str):
-    for photo in fake_db["photos"]:
-        if photo["id"] == photo_id:
-            photo["deleted"] = True
-            photo["deleted_at"] = datetime.utcnow()
-            return {"message": "🗑️ Photo moved to trash"}
+def delete_photo(photo_id: int, user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
+    photo = db.query(models.Photo).get(photo_id)
+    if not photo or photo.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Photo not found")
 
-    raise HTTPException(status_code=404, detail="Photo not found")
+    move_to_trash(photo)
+    db.commit()
+    return {"message": "Moved to trash"}
+
+
+# COLLECTIONS
+@router.post("/collections")
+def create_collection(name: str, user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
+    collection = models.Collection(name=name, user_id=user_id)
+    db.add(collection)
+    db.commit()
+    db.refresh(collection)
+    return {"message": "Collection created"}
+
+
+@router.get("/collections")
+def get_collections(user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
+    return db.query(models.Collection).filter(models.Collection.user_id == user_id).all()
+
+
+@router.post("/collections/{collection_id}/photos/{photo_id}")
+def add_photo_to_collection(collection_id: int, photo_id: int, user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
+    collection = db.query(models.Collection).get(collection_id)
+    if not collection or collection.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    photo = db.query(models.Photo).get(photo_id)
+    if not photo or photo.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    entry = models.CollectionPhoto(collection_id=collection_id, photo_id=photo_id)
+    db.add(entry)
+    db.commit()
+    return {"message": "Photo added to collection"}
+
+
+# SHARE
+@router.post("/share/{collection_id}")
+def share_collection(collection_id: int, user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
+    collection = db.query(models.Collection).get(collection_id)
+    if not collection or collection.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    hash_code = generate_share_hash()
+    share = models.ShareLink(collection_id=collection_id, share_hash=hash_code)
+    db.add(share)
+    db.commit()
+
+    return {"link": f"/s/{hash_code}"}
+
+
+@router.get("/s/{hash_code}")
+def view_shared(hash_code: str, db: Session = Depends(get_db)):
+    share = db.query(models.ShareLink).filter(models.ShareLink.share_hash == hash_code).first()
+    if not share:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    photos = db.query(models.CollectionPhoto).filter(
+        models.CollectionPhoto.collection_id == share.collection_id
+    ).all()
+    return photos

@@ -13,6 +13,8 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
     plan = Column(String, default="Starter")
+    current_count = Column(Integer, default=0)
+    total_limit = Column(Integer, default=20)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -48,6 +50,7 @@ class Collection(Base):
     # Relationships
     user = relationship("User", back_populates="collections")
     photos = relationship("CollectionPhoto", back_populates="collection", cascade="all, delete")
+    share_link = relationship("ShareLink", back_populates="collection", uselist=False)
 
 
 
@@ -62,6 +65,17 @@ class CollectionPhoto(Base):
     collection = relationship("Collection", back_populates="photos")
     photo = relationship("Photo", back_populates="collections")
 
+class ShareLink(Base):
+    __tablename__ = "share_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    collection_id = Column(Integer, ForeignKey("collections.id"), nullable=False)
+    share_hash = Column(String, unique=True, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    collection = relationship("Collection", back_populates="share_link")
+    
 
 
 

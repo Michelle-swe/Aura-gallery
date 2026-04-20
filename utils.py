@@ -5,15 +5,11 @@ from datetime import datetime, timedelta
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
+from config import settings
 
-
-# ==============================
-# 🔐 JWT CONFIG
-# ==============================
-
-SECRET_KEY = os.getenv("SECRET_KEY") # move to config.py later
-ALGORITHM = os.getenv("ALGORITHM") or "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES") or 60)   
+SECRET_KEY = str(settings.SECRET_KEY)
+ALGORITHM = str(settings.ALGORITHM)
+ACCESS_TOKEN_EXPIRE_MINUTES = int(settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
 security = HTTPBearer()
 
@@ -44,18 +40,14 @@ def verify_access_token(token: str):
     except JWTError:
         return None
 
-
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """
-    Extract user from token
-    """
     token = credentials.credentials
     payload = verify_access_token(token)
 
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    return payload # contains user_id
+    return payload["user_id"]  # return just the user_id, not the whole payload
 
 
 # ==============================
