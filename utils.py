@@ -1,11 +1,15 @@
 import os
 import uuid
 from datetime import datetime, timedelta
-
+import requests
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from config import settings
+
+# ==============================
+# 🔐 JWT CONFIG
+# ==============================
 
 SECRET_KEY = str(settings.SECRET_KEY)
 ALGORITHM = str(settings.ALGORITHM)
@@ -13,15 +17,55 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
 security = HTTPBearer()
 
+# ==============================
+# 💳 PAYSTACK CONFIG (FIXED)
+# ==============================
+
+# ✅ Use env variable (NOT hardcoded)
+PAYSTACK_SECRET = settings.PAYSTACK_SECRET_KEY
+
+
+def initialize_paystack_payment(email: str, amount: int):
+    url = "https://api.paystack.co/transaction/initialize"
+
+    headers = {
+        "Authorization": f"Bearer {PAYSTACK_SECRET}",
+        "Content-Type": "application/json"
+    }
+
+    # ❗ Ensure amount is not zero
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+
+    data = {
+        "email": email,
+        "amount": amount * 100  # convert to kobo
+    }
+
+    response = requests.post(url, json=data, headers=headers)
+
+    # ✅ Debug (you can remove later)
+    print("PAYSTACK RESPONSE:", response.json())
+
+    return response.json()
+
+
+def verify_paystack_payment(reference: str):
+    url = f"https://api.paystack.co/transaction/verify/{reference}"
+
+    headers = {
+        "Authorization": f"Bearer {PAYSTACK_SECRET}"
+    }
+
+    response = requests.get(url, headers=headers)
+    return response.json()
+
 
 # ==============================
 # 🔐 JWT FUNCTIONS
 # ==============================
 
 def create_access_token(data: dict):
-    """
-    Generate JWT token
-    """
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
@@ -31,14 +75,12 @@ def create_access_token(data: dict):
 
 
 def verify_access_token(token: str):
-    """
-    Verify and decode JWT token
-    """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
     except JWTError:
         return None
+
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
@@ -47,11 +89,11 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    return payload["user_id"]  # return just the user_id, not the whole payload
+    return payload["user_id"]
 
 
 # ==============================
-# 🚨 STORAGE LOGIC (CORE FEATURE)
+# 🚨 STORAGE LOGIC
 # ==============================
 
 def check_storage(user):

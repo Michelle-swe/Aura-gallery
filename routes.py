@@ -10,7 +10,9 @@ from utils import (
     get_current_user,
     enforce_storage_limit,
     generate_share_hash,
-    move_to_trash
+    initialize_paystack_payment,
+    move_to_trash,
+    verify_paystack_payment
 )
 
 router = APIRouter()
@@ -146,3 +148,70 @@ def view_shared(hash_code: str, db: Session = Depends(get_db)):
         models.CollectionPhoto.collection_id == share.collection_id
     ).all()
     return photos
+
+@router.post("/paystack/init")
+def init_payment(
+    plan: str,
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    user = db.query(models.User).get(user_id)
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    prices = {
+        "Basic": 0,
+        "Premium": 12,
+        "Diamond": 24
+    }
+
+    plan = plan.capitalize()
+
+    if plan not in prices:
+        raise HTTPException(status_code=400, detail="Invalid plan")
+
+    amount = prices[plan]
+
+    
+    if amount <= 0:
+        user.plan = "Basic"
+        user.total_limit = 30
+        db.commit()
+
+        return {
+            "message": "Basic plan activated successfully",
+            "plan": "Basic"
+        }
+
+    
+    response = initialize_paystack_payment(
+        email=user.email,
+        amount=amount
+    )
+
+    return {
+        "message": f"{plan} payment initialized",
+        "data": response
+    }
+@router.get("/paystack/verify/{reference}")
+def verify_payment(reference: str, plan: str, user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
+    result = verify_paystack_payment(reference)
+
+    if result["data"]["status"] != "success":
+        raise HTTPException(status_code=400, detail="Payment not successful")
+
+    user = db.query(models.User).get(user_id)
+
+    # update plan after payment
+    if plan == "Basic":
+        user.total_limit = 30
+    elif plan == "Premium":
+        user.total_limit = 70
+    elif plan == "Diamond":
+        user.total_limit = 120
+
+    user.plan = plan
+    db.commit()
+
+    return {"message": f"Payment verified. Upgraded to {plan}"}
