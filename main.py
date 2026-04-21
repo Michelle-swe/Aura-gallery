@@ -1,5 +1,4 @@
-from ast import Import
-
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import Base, engine, init_db
@@ -9,12 +8,17 @@ from config import settings
 
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
 app = FastAPI(
     title="Aura Gallery API",
     description="Premium photo management platform — Digital Curator",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
-
 
 cloudinary.config(
     cloud_name=settings.CLOUDINARY_CLOUD_NAME,
@@ -22,10 +26,6 @@ cloudinary.config(
     api_secret=settings.CLOUDINARY_API_SECRET,
     secure=True
 )
-
-@app.on_event("startup")
-def on_startup():
-    init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,7 +45,3 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-
-

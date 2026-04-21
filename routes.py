@@ -2,6 +2,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from sqlalchemy.orm import Session
 from database import get_db
 import models
+import schemas
 import bcrypt
 import cloudinary
 import cloudinary.uploader
@@ -19,24 +20,24 @@ router = APIRouter()
 
 
 # AUTH
-@router.post("/register")
-def register(email: str, password: str, db: Session = Depends(get_db)):
-    existing_user = db.query(models.User).filter(models.User.email == email).first()
+@router.post("/register", response_model=schemas.UserResponse)
+def register(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
+    existing_user = db.query(models.User).filter(models.User.email == user_in.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-    user = models.User(email=email, password_hash=hashed_password)
+    hashed_password = bcrypt.hashpw(user_in.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    user = models.User(email=user_in.email, password_hash=hashed_password)
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"message": "User created", "email": user.email}
+    return user
 
 
 @router.post("/login")
-def login(email: str, password: str, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if not user or not bcrypt.checkpw(password.encode("utf-8"), user.password_hash.encode("utf-8")):
+def login(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == user_in.email).first()
+    if not user or not bcrypt.checkpw(user_in.password.encode("utf-8"), user.password_hash.encode("utf-8")):
         raise HTTPException(status_code=400, detail="Invalid credentials")
 
     token = create_access_token({"user_id": user.id})
@@ -46,7 +47,7 @@ def login(email: str, password: str, db: Session = Depends(get_db)):
 # USER
 @router.get("/me")
 def get_me(user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
-    user = db.query(models.User).get(user_id)
+    user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
@@ -55,7 +56,7 @@ def get_me(user_id: int = Depends(get_current_user), db: Session = Depends(get_d
 # PHOTOS
 @router.post("/photos/upload")
 async def upload_photo(file: UploadFile = File(...), user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
-    user = db.query(models.User).get(user_id)
+    user = db.get(models.User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -83,7 +84,7 @@ def get_photos(user_id: int = Depends(get_current_user), db: Session = Depends(g
 
 @router.delete("/photos/{photo_id}")
 def delete_photo(photo_id: int, user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
-    photo = db.query(models.Photo).get(photo_id)
+    photo = db.get(models.Photo, photo_id)
     if not photo or photo.user_id != user_id:
         raise HTTPException(status_code=404, detail="Photo not found")
 
@@ -109,11 +110,11 @@ def get_collections(user_id: int = Depends(get_current_user), db: Session = Depe
 
 @router.post("/collections/{collection_id}/photos/{photo_id}")
 def add_photo_to_collection(collection_id: int, photo_id: int, user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
-    collection = db.query(models.Collection).get(collection_id)
+    collection = db.get(models.Collection, collection_id)
     if not collection or collection.user_id != user_id:
         raise HTTPException(status_code=404, detail="Collection not found")
 
-    photo = db.query(models.Photo).get(photo_id)
+    photo = db.get(models.Photo, photo_id)
     if not photo or photo.user_id != user_id:
         raise HTTPException(status_code=404, detail="Photo not found")
 
@@ -126,7 +127,7 @@ def add_photo_to_collection(collection_id: int, photo_id: int, user_id: int = De
 # SHARE
 @router.post("/share/{collection_id}")
 def share_collection(collection_id: int, user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
-    collection = db.query(models.Collection).get(collection_id)
+    collection = db.get(models.Collection, collection_id)
     if not collection or collection.user_id != user_id:
         raise HTTPException(status_code=404, detail="Collection not found")
 
@@ -155,7 +156,7 @@ def init_payment(
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    user = db.query(models.User).get(user_id)
+    user = db.get(models.User, user_id)
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -201,7 +202,7 @@ def verify_payment(reference: str, plan: str, user_id: int = Depends(get_current
     if result["data"]["status"] != "success":
         raise HTTPException(status_code=400, detail="Payment not successful")
 
-    user = db.query(models.User).get(user_id)
+    user = db.get(models.User, user_id)
 
     # update plan after payment
     if plan == "Basic":
