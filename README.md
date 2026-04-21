@@ -4,7 +4,7 @@ Premium photo management platform API built with FastAPI.
 
 ## Stack
 
-- FastAPI + SQLAlchemy + PostgreSQL
+- FastAPI + SQLAlchemy + SQlite
 - Cloudinary (photo storage)
 - JWT Authentication + Google OAuth2
 
